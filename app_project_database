@@ -1,0 +1,549 @@
+package com.attendance.services;
+
+import com.attendance.models.*;
+import java.sql.*;
+import java.util.*;
+import java.time.LocalDateTime;
+
+public class MySQLDatabaseService {
+    
+    private Connection connection;
+    
+    // MySQL Configuration
+    private static final String DB_HOST = "localhost";
+    private static final String DB_PORT = "3306";
+    private static final String DB_NAME = "attendance_system";
+    private static final String DB_USER = "root";
+    private static final String DB_PASSWORD = "your_password";
+    
+    // Connection URL
+    private static final String DB_URL = "jdbc:mysql://" + DB_HOST + ":" + DB_PORT + "/" + DB_NAME + 
+                                        "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+    
+    public MySQLDatabaseService() {
+        connectToDatabase();
+        initDatabase();
+    }
+    
+    // ============================================
+    // CONNECTION MANAGEMENT
+    // ============================================
+    
+    private void connectToDatabase() {
+        try {
+            // Load MySQL JDBC Driver
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            
+            // Establish connection
+            connection = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+            
+            System.out.println("====================================");
+            System.out.println("✓ MySQL Database Connected Successfully!");
+            System.out.println("  Host: " + DB_HOST);
+            System.out.println("  Database: " + DB_NAME);
+            System.out.println("  Status: Active");
+            System.out.println("====================================");
+            
+        } catch (ClassNotFoundException e) {
+            System.err.println("MySQL JDBC Driver not found!");
+            System.err.println("Add mysql-connector-java dependency to your project");
+            e.printStackTrace();
+        } catch (SQLException e) {
+            System.err.println("Database connection failed!");
+            System.err.println("Error: " + e.getMessage());
+            System.err.println("\nTroubleshooting:");
+            System.err.println("1. Check if MySQL server is running");
+            System.err.println("2. Verify database credentials (username/password)");
+            System.err.println("3. Ensure database '" + DB_NAME + "' exists");
+            System.err.println("4. Check MySQL port: " + DB_PORT);
+            e.printStackTrace();
+        }
+    }
+    
+    // ============================================
+    // DATABASE INITIALIZATION
+    // ============================================
+    
+    private void initDatabase() {
+        if (connection == null) {
+            System.err.println("Cannot initialize database - no connection");
+            return;
+        }
+        
+        try {
+            Statement stmt = connection.createStatement();
+            
+            // Create Courses Table
+            String createCoursesTable = 
+                "CREATE TABLE IF NOT EXISTS courses (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "code VARCHAR(50) NOT NULL UNIQUE, " +
+                "name VARCHAR(200) NOT NULL, " +
+                "schedule VARCHAR(100), " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            
+            // Create Students Table
+            String createStudentsTable = 
+                "CREATE TABLE IF NOT EXISTS students (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "student_id VARCHAR(50) NOT NULL UNIQUE, " +
+                "name VARCHAR(200), " +
+                "email VARCHAR(200), " +
+                "phone VARCHAR(50), " +
+                "department VARCHAR(100), " +
+                "year INT, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            
+            // Create Attendance Table
+            String createAttendanceTable = 
+                "CREATE TABLE IF NOT EXISTS attendance (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "student_id VARCHAR(50) NOT NULL, " +
+                "course_id INT NOT NULL, " +
+                "session_id INT, " +
+                "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                "confidence DECIMAL(5,2), " +
+                "method VARCHAR(50), " +
+                "status ENUM('present', 'absent', 'late') DEFAULT 'present', " +
+                "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE, " +
+                "INDEX idx_student_id (student_id), " +
+                "INDEX idx_course_id (course_id), " +
+                "INDEX idx_timestamp (timestamp)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            
+            // Create Sessions Table
+            String createSessionsTable = 
+                "CREATE TABLE IF NOT EXISTS sessions (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "course_id INT NOT NULL, " +
+                "start_time DATETIME NOT NULL, " +
+                "end_time DATETIME, " +
+                "total_recognized INT DEFAULT 0, " +
+                "avg_confidence DECIMAL(5,2), " +
+                "status ENUM('active', 'completed', 'cancelled') DEFAULT 'active', " +
+                "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            
+            // Create Notifications Table
+            String createNotificationsTable = 
+                "CREATE TABLE IF NOT EXISTS notifications (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "type VARCHAR(50), " +
+                "message TEXT, " +
+                "is_read BOOLEAN DEFAULT FALSE, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            
+            // Execute table creation
+            stmt.execute(createCoursesTable);
+            System.out.println("✓ Table 'courses' created/verified");
+            
+            stmt.execute(createStudentsTable);
+            System.out.println("✓ Table 'students' created/verified");
+            
+            stmt.execute(createAttendanceTable);
+            System.out.println("✓ Table 'attendance' created/verified");
+            
+            stmt.execute(createSessionsTable);
+            System.out.println("✓ Table 'sessions' created/verified");
+            
+            stmt.execute(createNotificationsTable);
+            System.out.println("✓ Table 'notifications' created/verified");
+            
+            stmt.close();
+            
+            System.out.println("====================================");
+            System.out.println("Database tables initialized successfully!");
+            System.out.println("====================================\n");
+            
+        } catch (SQLException e) {
+            System.err.println("Error initializing database tables: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    // ============================================
+    // COURSE OPERATIONS
+    // ============================================
+    
+    public void saveCourse(Course course) {
+        String sql = "INSERT INTO courses (code, name, schedule) VALUES (?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE name=?, schedule=?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, course.getCode());
+            pstmt.setString(2, course.getName());
+            pstmt.setString(3, course.getSchedule());
+            pstmt.setString(4, course.getName());
+            pstmt.setString(5, course.getSchedule());
+            
+            int rows = pstmt.executeUpdate();
+            System.out.println("✓ Course saved: " + course.getCode() + " (" + rows + " row affected)");
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving course: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public List<Course> getAllCourses() {
+        List<Course> courses = new ArrayList<>();
+        String sql = "SELECT * FROM courses ORDER BY code";
+        
+        try (Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            while (rs.next()) {
+                courses.add(new Course(
+                    rs.getInt("id"),
+                    rs.getString("code"),
+                    rs.getString("name"),
+                    rs.getString("schedule")
+                ));
+            }
+            
+            System.out.println("✓ Loaded " + courses.size() + " courses from database");
+            
+        } catch (SQLException e) {
+            System.err.println("Error loading courses: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        return courses;
+    }
+    
+    public Course getCourseById(int id) {
+        String sql = "SELECT * FROM courses WHERE id = ?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, id);
+            ResultSet rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return new Course(
+                    rs.getInt("id"),
+                    rs.getString("code"),
+                    rs.getString("name"),
+                    rs.getString("schedule")
+                );
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error getting course: " + e.getMessage());
+        }
+        
+        return null;
+    }
+    
+    public void deleteCourse(int courseId) {
+        String sql = "DELETE FROM courses WHERE id = ?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, courseId);
+            int rows = pstmt.executeUpdate();
+            System.out.println("✓ Course deleted (" + rows + " row affected)");
+            
+        } catch (SQLException e) {
+            System.err.println("Error deleting course: " + e.getMessage());
+        }
+    }
+    
+    // ============================================
+    // ATTENDANCE OPERATIONS
+    // ============================================
+    
+    public void saveAttendance(RecognizedStudent student, Course course) {
+        saveAttendance(student, course, null);
+    }
+    
+    public void saveAttendance(RecognizedStudent student, Course course, Integer sessionId) {
+        String sql = "INSERT INTO attendance (student_id, course_id, session_id, timestamp, confidence, method) " +
+                    "VALUES (?, ?, ?, ?, ?, ?)";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, student.getStudentId());
+            pstmt.setInt(2, course.getId());
+            
+            if (sessionId != null) {
+                pstmt.setInt(3, sessionId);
+            } else {
+                pstmt.setNull(3, Types.INTEGER);
+            }
+            
+            pstmt.setTimestamp(4, Timestamp.valueOf(student.getTimestamp()));
+            pstmt.setDouble(5, student.getConfidence());
+            pstmt.setString(6, student.getMethod());
+            
+            int rows = pstmt.executeUpdate();
+            System.out.println("✓ Attendance saved: " + student.getStudentId() + " in " + course.getCode());
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving attendance: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public List<AttendanceRecord> getAttendanceData() {
+        return getAttendanceData(100);
+    }
+    
+    public List<AttendanceRecord> getAttendanceData(int limit) {
+        List<AttendanceRecord> records = new ArrayList<>();
+        String sql = "SELECT a.*, c.code, c.name FROM attendance a " +
+                     "JOIN courses c ON a.course_id = c.id " +
+                     "ORDER BY a.timestamp DESC LIMIT ?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, limit);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                AttendanceRecord record = new AttendanceRecord();
+                record.setId(rs.getInt("id"));
+                record.setStudentId(rs.getString("student_id"));
+                record.setCourseId(rs.getInt("course_id"));
+                record.setCourseCode(rs.getString("code"));
+                record.setCourseName(rs.getString("name"));
+                record.setTimestamp(rs.getTimestamp("timestamp").toLocalDateTime());
+                record.setConfidence(rs.getDouble("confidence"));
+                record.setMethod(rs.getString("method"));
+                records.add(record);
+            }
+            
+            System.out.println("✓ Loaded " + records.size() + " attendance records");
+            
+        } catch (SQLException e) {
+            System.err.println("Error loading attendance data: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        return records;
+    }
+    
+    public List<AttendanceRecord> getAttendanceByDate(LocalDateTime startDate, LocalDateTime endDate) {
+        List<AttendanceRecord> records = new ArrayList<>();
+        String sql = "SELECT a.*, c.code, c.name FROM attendance a " +
+                     "JOIN courses c ON a.course_id = c.id " +
+                     "WHERE a.timestamp BETWEEN ? AND ? " +
+                     "ORDER BY a.timestamp DESC";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setTimestamp(1, Timestamp.valueOf(startDate));
+            pstmt.setTimestamp(2, Timestamp.valueOf(endDate));
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                AttendanceRecord record = new AttendanceRecord();
+                record.setId(rs.getInt("id"));
+                record.setStudentId(rs.getString("student_id"));
+                record.setCourseId(rs.getInt("course_id"));
+                record.setCourseCode(rs.getString("code"));
+                record.setCourseName(rs.getString("name"));
+                record.setTimestamp(rs.getTimestamp("timestamp").toLocalDateTime());
+                record.setConfidence(rs.getDouble("confidence"));
+                record.setMethod(rs.getString("method"));
+                records.add(record);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error loading attendance by date: " + e.getMessage());
+        }
+        
+        return records;
+    }
+    
+    public List<AttendanceRecord> getAttendanceByCourse(int courseId) {
+        List<AttendanceRecord> records = new ArrayList<>();
+        String sql = "SELECT a.*, c.code, c.name FROM attendance a " +
+                     "JOIN courses c ON a.course_id = c.id " +
+                     "WHERE a.course_id = ? " +
+                     "ORDER BY a.timestamp DESC";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, courseId);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                AttendanceRecord record = new AttendanceRecord();
+                record.setId(rs.getInt("id"));
+                record.setStudentId(rs.getString("student_id"));
+                record.setCourseId(rs.getInt("course_id"));
+                record.setCourseCode(rs.getString("code"));
+                record.setCourseName(rs.getString("name"));
+                record.setTimestamp(rs.getTimestamp("timestamp").toLocalDateTime());
+                record.setConfidence(rs.getDouble("confidence"));
+                record.setMethod(rs.getString("method"));
+                records.add(record);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error loading attendance by course: " + e.getMessage());
+        }
+        
+        return records;
+    }
+    
+    public int startSession(int courseId) {
+        String sql = "INSERT INTO sessions (course_id, start_time, status) VALUES (?, NOW(), 'active')";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            pstmt.setInt(1, courseId);
+            pstmt.executeUpdate();
+            
+            ResultSet rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                int sessionId = rs.getInt(1);
+                System.out.println("✓ Session started with ID: " + sessionId);
+                return sessionId;
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error starting session: " + e.getMessage());
+        }
+        
+        return -1;
+    }
+    
+    public void endSession(int sessionId, int totalRecognized, double avgConfidence) {
+        String sql = "UPDATE sessions SET end_time = NOW(), total_recognized = ?, " +
+                    "avg_confidence = ?, status = 'completed' WHERE id = ?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, totalRecognized);
+            pstmt.setDouble(2, avgConfidence);
+            pstmt.setInt(3, sessionId);
+            
+            int rows = pstmt.executeUpdate();
+            System.out.println("✓ Session ended (ID: " + sessionId + ", Recognized: " + totalRecognized + ")");
+            
+        } catch (SQLException e) {
+            System.err.println("Error ending session: " + e.getMessage());
+        }
+    }
+    
+    // ============================================
+    // STATISTICS AND ANALYTICS
+    // ============================================
+    
+    public Map<String, Integer> getAttendanceStats() {
+        Map<String, Integer> stats = new HashMap<>();
+        
+        try (Statement stmt = connection.createStatement()) {
+            // Total attendance records
+            ResultSet rs = stmt.executeQuery("SELECT COUNT(*) as count FROM attendance");
+            if (rs.next()) stats.put("total", rs.getInt("count"));
+            
+            // Today's attendance
+            rs = stmt.executeQuery("SELECT COUNT(*) as count FROM attendance WHERE DATE(timestamp) = CURDATE()");
+            if (rs.next()) stats.put("today", rs.getInt("count"));
+            
+            // This week's attendance
+            rs = stmt.executeQuery("SELECT COUNT(*) as count FROM attendance WHERE YEARWEEK(timestamp) = YEARWEEK(NOW())");
+            if (rs.next()) stats.put("thisWeek", rs.getInt("count"));
+            
+            // This month's attendance
+            rs = stmt.executeQuery("SELECT COUNT(*) as count FROM attendance WHERE YEAR(timestamp) = YEAR(NOW()) AND MONTH(timestamp) = MONTH(NOW())");
+            if (rs.next()) stats.put("thisMonth", rs.getInt("count"));
+            
+            // Average confidence
+            rs = stmt.executeQuery("SELECT AVG(confidence) as avg FROM attendance");
+            if (rs.next()) stats.put("avgConfidence", (int)rs.getDouble("avg"));
+            
+            System.out.println("✓ Statistics retrieved successfully");
+            
+        } catch (SQLException e) {
+            System.err.println("Error getting statistics: " + e.getMessage());
+        }
+        
+        return stats;
+    }
+    
+    public Map<String, Object> getDashboardData() {
+        Map<String, Object> data = new HashMap<>();
+        
+        try (Statement stmt = connection.createStatement()) {
+            // Total courses
+            ResultSet rs = stmt.executeQuery("SELECT COUNT(*) as count FROM courses");
+            if (rs.next()) data.put("totalCourses", rs.getInt("count"));
+            
+            // Total students (unique)
+            rs = stmt.executeQuery("SELECT COUNT(DISTINCT student_id) as count FROM attendance");
+            if (rs.next()) data.put("totalStudents", rs.getInt("count"));
+            
+            // Total sessions
+            rs = stmt.executeQuery("SELECT COUNT(*) as count FROM sessions");
+            if (rs.next()) data.put("totalSessions", rs.getInt("count"));
+            
+            // Today's attendance
+            rs = stmt.executeQuery("SELECT COUNT(*) as count FROM attendance WHERE DATE(timestamp) = CURDATE()");
+            if (rs.next()) data.put("todayAttendance", rs.getInt("count"));
+            
+        } catch (SQLException e) {
+            System.err.println("Error getting dashboard data: " + e.getMessage());
+        }
+        
+        return data;
+    }
+    
+    // ============================================
+    // STUDENT OPERATIONS
+    // ============================================
+    
+    public void saveStudent(String studentId, String name, String email, String phone, String department, int year) {
+        String sql = "INSERT INTO students (student_id, name, email, phone, department, year) " +
+                    "VALUES (?, ?, ?, ?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE name=?, email=?, phone=?, department=?, year=?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, studentId);
+            pstmt.setString(2, name);
+            pstmt.setString(3, email);
+            pstmt.setString(4, phone);
+            pstmt.setString(5, department);
+            pstmt.setInt(6, year);
+            pstmt.setString(7, name);
+            pstmt.setString(8, email);
+            pstmt.setString(9, phone);
+            pstmt.setString(10, department);
+            pstmt.setInt(11, year);
+            
+            pstmt.executeUpdate();
+            System.out.println("✓ Student saved: " + studentId);
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving student: " + e.getMessage());
+        }
+    }
+    
+    // ============================================
+    // CONNECTION MANAGEMENT
+    // ============================================
+    
+    public boolean isConnected() {
+        try {
+            return connection != null && !connection.isClosed();
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+    
+    public void reconnect() {
+        close();
+        connectToDatabase();
+        initDatabase();
+    }
+    
+    public void close() {
+        try {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+                System.out.println("✓ Database connection closed successfully");
+            }
+        } catch (SQLException e) {
+            System.err.println("Error closing database connection: " + e.getMessage());
+        }
+    }
+}
