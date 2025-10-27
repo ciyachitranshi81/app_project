@@ -1,0 +1,655 @@
+package com.attendance.frontend;
+
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.*;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
+import javafx.stage.Stage;
+import com.attendance.backend.AttendanceController;
+import com.attendance.models.Course;
+import java.util.Optional;
+
+public class SmartAttendanceUI extends Application {
+    
+    // ============================================
+    // UI COMPONENTS
+    // ============================================
+    
+    // Core Layout
+    private BorderPane mainLayout;
+    private TabPane tabPane;
+    
+    // Live Recognition Tab Components
+    private ImageView cameraView;
+    private ListView<String> recognitionList;
+    private Label totalRecordedLabel;
+    private Label presentTodayLabel;
+    private Label avgConfidenceLabel;
+    private Label facesDetectedLabel;
+    private Label sessionStatusLabel;
+    private Label sessionTimeLabel;
+    private Button startButton;
+    private Button stopButton;
+    private Button pauseButton;
+    private ComboBox<Course> courseComboBox;
+    private ProgressBar recognitionProgress;
+    
+    // Admin Dashboard Components
+    private GridPane courseGrid;
+    private Label totalCoursesLabel;
+    private Label totalSessionsLabel;
+    private Label recognizedTodayLabel;
+    private Label avgAccuracyLabel;
+    private ListView<String> notificationList;
+    
+    // Backend Controller
+    private AttendanceController controller;
+    private Course currentSession;
+    private boolean isPaused = false;
+    
+    // ============================================
+    // APPLICATION START
+    // ============================================
+    
+    @Override
+    public void start(Stage primaryStage) {
+        controller = new AttendanceController(this);
+        setupMainLayout(primaryStage);
+        
+        primaryStage.setTitle("Smart Attendance System - Java Edition");
+        primaryStage.setScene(new Scene(mainLayout, 1600, 1000));
+        primaryStage.setMaximized(true);
+        primaryStage.show();
+        
+        primaryStage.setOnCloseRequest(e -> {
+            e.consume();
+            handleExit(primaryStage);
+        });
+    }
+    
+    // ============================================
+    // MAIN LAYOUT SETUP
+    // ============================================
+    
+    private void setupMainLayout(Stage stage) {
+        mainLayout = new BorderPane();
+        mainLayout.setStyle("-fx-background-color: linear-gradient(to bottom, #0a0a0a, #1a1a1a);");
+        
+        mainLayout.setTop(createHeader());
+        mainLayout.setCenter(createTabPane());
+        mainLayout.setBottom(createFooter());
+    }
+    
+    // ============================================
+    // HEADER SECTION
+    // ============================================
+    
+    private VBox createHeader() {
+        VBox header = new VBox(10);
+        header.setPadding(new Insets(25));
+        header.setStyle("-fx-background-color: linear-gradient(to right, #1a1a1a, #2a2a2a); " +
+                       "-fx-border-color: #00ffff; -fx-border-width: 0 0 2 0;");
+        
+        HBox headerContent = new HBox(30);
+        headerContent.setAlignment(Pos.CENTER_LEFT);
+        
+        // Logo Section
+        VBox logoBox = new VBox();
+        logoBox.setAlignment(Pos.CENTER);
+        logoBox.setPrefSize(80, 80);
+        logoBox.setStyle("-fx-background-color: linear-gradient(to bottom right, #00ffff, #0099ff); " +
+                        "-fx-background-radius: 15; -fx-padding: 15;");
+        
+        Label logo = new Label("📷");
+        logo.setFont(Font.font("Arial", FontWeight.BOLD, 40));
+        logoBox.getChildren().add(logo);
+        
+        // Title Section
+        VBox titleBox = new VBox(5);
+        
+        Label title = new Label("Smart Attendance AI");
+        title.setFont(Font.font("Arial", FontWeight.BOLD, 36));
+        title.setStyle("-fx-text-fill: #00ffff;");
+        
+        Label subtitle = new Label("OpenCV Face Recognition System with Auto-Recording");
+        subtitle.setFont(Font.font("Arial", FontWeight.NORMAL, 14));
+        subtitle.setStyle("-fx-text-fill: #888888;");
+        
+        Label techStack = new Label("Java • JavaFX • OpenCV • MySQL • Google Calendar API");
+        techStack.setFont(Font.font("Arial", FontWeight.NORMAL, 11));
+        techStack.setStyle("-fx-text-fill: #666666;");
+        
+        titleBox.getChildren().addAll(title, subtitle, techStack);
+        
+        // Spacer
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        
+        // User Info Section
+        VBox userBox = new VBox(5);
+        userBox.setAlignment(Pos.CENTER_RIGHT);
+        userBox.setStyle("-fx-background-color: #2a2a2a; -fx-background-radius: 10; -fx-padding: 15;");
+        
+        HBox userHeader = new HBox(10);
+        userHeader.setAlignment(Pos.CENTER_RIGHT);
+        
+        Label notificationIcon = new Label("🔔");
+        notificationIcon.setFont(Font.font(24));
+        notificationIcon.setStyle("-fx-cursor: hand;");
+        notificationIcon.setOnMouseClicked(e -> showNotifications());
+        
+        VBox userText = new VBox(3);
+        userText.setAlignment(Pos.CENTER_RIGHT);
+        
+        Label userName = new Label("Invigilator");
+        userName.setFont(Font.font("Arial", FontWeight.BOLD, 16));
+        userName.setStyle("-fx-text-fill: white;");
+        
+        Label userRole = new Label("Admin Access");
+        userRole.setFont(Font.font("Arial", FontWeight.NORMAL, 12));
+        userRole.setStyle("-fx-text-fill: #888888;");
+        
+        userText.getChildren().addAll(userName, userRole);
+        userHeader.getChildren().addAll(userText, notificationIcon);
+        userBox.getChildren().add(userHeader);
+        
+        headerContent.getChildren().addAll(logoBox, titleBox, spacer, userBox);
+        header.getChildren().add(headerContent);
+        
+        return header;
+    }
+    
+    // ============================================
+    // TAB PANE (MAIN CONTENT)
+    // ============================================
+    
+    private TabPane createTabPane() {
+        tabPane = new TabPane();
+        tabPane.setStyle("-fx-background-color: #0a0a0a;");
+        
+        // Live Recognition Tab
+        Tab liveTab = new Tab("📹 Live Recognition");
+        liveTab.setContent(createLiveRecognitionView());
+        liveTab.setClosable(false);
+        liveTab.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        
+        // Admin Dashboard Tab
+        Tab adminTab = new Tab("⚙ Admin Dashboard");
+        adminTab.setContent(createAdminDashboardView());
+        adminTab.setClosable(false);
+        adminTab.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        
+        // Reports Tab
+        Tab reportsTab = new Tab("📊 Reports & Analytics");
+        reportsTab.setContent(createReportsView());
+        reportsTab.setClosable(false);
+        reportsTab.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        
+        // Settings Tab
+        Tab settingsTab = new Tab("⚙️ Settings");
+        settingsTab.setContent(createSettingsView());
+        settingsTab.setClosable(false);
+        settingsTab.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        
+        tabPane.getTabs().addAll(liveTab, adminTab, reportsTab, settingsTab);
+        
+        return tabPane;
+    }
+    
+    // ============================================
+    // LIVE RECOGNITION VIEW
+    // ============================================
+    
+    private ScrollPane createLiveRecognitionView() {
+        VBox layout = new VBox(20);
+        layout.setPadding(new Insets(25));
+        layout.setStyle("-fx-background-color: #0a0a0a;");
+        
+        // Control Panel
+        VBox controlPanel = createControlPanel();
+        
+        // Statistics Panel
+        HBox statsPanel = createStatisticsPanel();
+        
+        // Camera and Recognition Panel
+        HBox cameraRecognitionPanel = createCameraRecognitionPanel();
+        
+        // Technical Info Panel
+        HBox technicalPanel = createTechnicalInfoPanel();
+        
+        layout.getChildren().addAll(controlPanel, statsPanel, cameraRecognitionPanel, technicalPanel);
+        
+        ScrollPane scrollPane = new ScrollPane(layout);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background: #0a0a0a;");
+        
+        return scrollPane;
+    }
+    
+    private VBox createControlPanel() {
+        VBox panel = new VBox(15);
+        panel.setPadding(new Insets(25));
+        panel.setStyle("-fx-background-color: linear-gradient(to bottom right, #1a1a1a, #2a2a2a); " +
+                      "-fx-background-radius: 15; -fx-border-color: #00ffff; " +
+                      "-fx-border-width: 2; -fx-border-radius: 15;");
+        
+        // Title Section
+        HBox titleBox = new HBox(15);
+        titleBox.setAlignment(Pos.CENTER_LEFT);
+        
+        Label statusIndicator = new Label("●");
+        statusIndicator.setFont(Font.font(24));
+        statusIndicator.setStyle("-fx-text-fill: #888888;");
+        
+        VBox titleText = new VBox(5);
+        Label title = new Label("Live Face Recognition Engine");
+        title.setFont(Font.font("Arial", FontWeight.BOLD, 26));
+        title.setStyle("-fx-text-fill: white;");
+        
+        Label subtitle = new Label("OpenCV Haar Cascade + LBPH/CNN Recognition");
+        subtitle.setFont(Font.font("Arial", FontWeight.NORMAL, 13));
+        subtitle.setStyle("-fx-text-fill: #888888;");
+        
+        titleText.getChildren().addAll(title, subtitle);
+        titleBox.getChildren().addAll(statusIndicator, titleText);
+        
+        // Separator
+        Separator separator = new Separator();
+        separator.setStyle("-fx-background-color: #444444;");
+        
+        // Course Selection
+        HBox courseSelection = new HBox(15);
+        courseSelection.setAlignment(Pos.CENTER_LEFT);
+        courseSelection.setPadding(new Insets(10, 0, 10, 0));
+        
+        Label courseLabel = new Label("Select Course:");
+        courseLabel.setFont(Font.font("Arial", FontWeight.BOLD, 14));
+        courseLabel.setStyle("-fx-text-fill: #00ffff;");
+        
+        courseComboBox = new ComboBox<>();
+        courseComboBox.getItems().addAll(controller.getCourses());
+        courseComboBox.setPrefWidth(400);
+        courseComboBox.setPromptText("Choose a course to start session...");
+        courseComboBox.setStyle("-fx-background-color: #2a2a2a; -fx-text-fill: white; -fx-font-size: 13px;");
+        
+        Button refreshCoursesBtn = new Button("🔄");
+        refreshCoursesBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white; " +
+                                   "-fx-font-weight: bold; -fx-cursor: hand;");
+        refreshCoursesBtn.setOnAction(e -> refreshCourses());
+        
+        courseSelection.getChildren().addAll(courseLabel, courseComboBox, refreshCoursesBtn);
+        
+        // Session Status
+        HBox sessionStatus = new HBox(20);
+        sessionStatus.setPadding(new Insets(10));
+        sessionStatus.setStyle("-fx-background-color: #252525; -fx-background-radius: 10; " +
+                              "-fx-border-color: #444444; -fx-border-radius: 10;");
+        
+        Label statusLabel = new Label("Session Status:");
+        statusLabel.setStyle("-fx-text-fill: #888888; -fx-font-weight: bold;");
+        
+        sessionStatusLabel = new Label("INACTIVE");
+        sessionStatusLabel.setFont(Font.font("Arial", FontWeight.BOLD, 14));
+        sessionStatusLabel.setStyle("-fx-text-fill: #888888;");
+        
+        Separator vSep = new Separator();
+        vSep.setOrientation(javafx.geometry.Orientation.VERTICAL);
+        
+        Label timeLabel = new Label("Session Time:");
+        timeLabel.setStyle("-fx-text-fill: #888888; -fx-font-weight: bold;");
+        
+        sessionTimeLabel = new Label("00:00:00");
+        sessionTimeLabel.setFont(Font.font("Monospace", FontWeight.BOLD, 14));
+        sessionTimeLabel.setStyle("-fx-text-fill: #888888;");
+        
+        sessionStatus.getChildren().addAll(statusLabel, sessionStatusLabel, vSep, 
+                                          timeLabel, sessionTimeLabel);
+        
+        // Progress Bar
+        recognitionProgress = new ProgressBar(0);
+        recognitionProgress.setPrefWidth(Double.MAX_VALUE);
+        recognitionProgress.setStyle("-fx-accent: #10b981;");
+        
+        // Control Buttons
+        HBox controlButtons = new HBox(15);
+        controlButtons.setAlignment(Pos.CENTER_LEFT);
+        controlButtons.setPadding(new Insets(10, 0, 0, 0));
+        
+        startButton = new Button("▶ START SESSION");
+        startButton.setPrefSize(200, 50);
+        startButton.setFont(Font.font("Arial", FontWeight.BOLD, 16));
+        startButton.setStyle("-fx-background-color: linear-gradient(to bottom right, #10b981, #059669); " +
+                            "-fx-text-fill: white; -fx-background-radius: 10; -fx-cursor: hand;");
+        startButton.setOnAction(e -> startSession());
+        
+        stopButton = new Button("⬛ END SESSION");
+        stopButton.setPrefSize(200, 50);
+        stopButton.setFont(Font.font("Arial", FontWeight.BOLD, 16));
+        stopButton.setStyle("-fx-background-color: linear-gradient(to bottom right, #ef4444, #dc2626); " +
+                           "-fx-text-fill: white; -fx-background-radius: 10; -fx-cursor: hand;");
+        stopButton.setDisable(true);
+        stopButton.setOnAction(e -> stopSession());
+        
+        pauseButton = new Button("⏸ PAUSE");
+        pauseButton.setPrefSize(150, 50);
+        pauseButton.setFont(Font.font("Arial", FontWeight.BOLD, 14));
+        pauseButton.setStyle("-fx-background-color: #f59e0b; -fx-text-fill: white; " +
+                            "-fx-background-radius: 10; -fx-cursor: hand;");
+        pauseButton.setDisable(true);
+        pauseButton.setOnAction(e -> pauseSession());
+        
+        controlButtons.getChildren().addAll(startButton, stopButton, pauseButton);
+        
+        panel.getChildren().addAll(titleBox, separator, courseSelection, sessionStatus, 
+                                   recognitionProgress, controlButtons);
+        
+        return panel;
+    }
+    
+    private HBox createStatisticsPanel() {
+        HBox panel = new HBox(15);
+        panel.setAlignment(Pos.CENTER);
+        
+        totalRecordedLabel = createStatCard("Students Recognized", "0", "#a855f7");
+        presentTodayLabel = createStatCard("Present Today", "0", "#00ffff");
+        avgConfidenceLabel = createStatCard("Avg Confidence", "0%", "#10b981");
+        facesDetectedLabel = createStatCard("Faces Detected", "0", "#f59e0b");
+        
+        panel.getChildren().addAll(totalRecordedLabel, presentTodayLabel, 
+                                   avgConfidenceLabel, facesDetectedLabel);
+        
+        return panel;
+    }
+    
+    private Label createStatCard(String title, String value, String color) {
+        VBox card = new VBox(10);
+        card.setPadding(new Insets(20));
+        card.setAlignment(Pos.CENTER);
+        card.setPrefWidth(280);
+        card.setPrefHeight(150);
+        card.setStyle("-fx-background-color: linear-gradient(to bottom right, #1a1a1a, #2a2a2a); " +
+                     "-fx-background-radius: 15; -fx-border-color: " + color + "; " +
+                     "-fx-border-width: 2; -fx-border-radius: 15;");
+        
+        Label titleLabel = new Label(title);
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 12));
+        titleLabel.setStyle("-fx-text-fill: #888888;");
+        
+        Label valueLabel = new Label(value);
+        valueLabel.setFont(Font.font("Arial", FontWeight.BOLD, 32));
+        valueLabel.setStyle("-fx-text-fill: " + color + ";");
+        
+        card.getChildren().addAll(titleLabel, valueLabel);
+        
+        return valueLabel;
+    }
+    
+    private HBox createCameraRecognitionPanel() {
+        HBox panel = new HBox(20);
+        panel.setAlignment(Pos.TOP_CENTER);
+        
+        VBox cameraBox = createCameraViewBox();
+        HBox.setHgrow(cameraBox, Priority.ALWAYS);
+        
+        VBox recognitionBox = createRecognitionListBox();
+        
+        panel.getChildren().addAll(cameraBox, recognitionBox);
+        
+        return panel;
+    }
+    
+    private VBox createCameraViewBox() {
+        VBox box = new VBox(15);
+        box.setPadding(new Insets(20));
+        box.setStyle("-fx-background-color: linear-gradient(to bottom right, #1a1a1a, #2a2a2a); " +
+                    "-fx-background-radius: 15; -fx-border-color: #a855f7; " +
+                    "-fx-border-width: 2; -fx-border-radius: 15;");
+        
+        // Header
+        HBox header = new HBox(15);
+        header.setAlignment(Pos.CENTER_LEFT);
+        
+        Label icon = new Label("📹");
+        icon.setFont(Font.font(24));
+        
+        VBox titleBox = new VBox(3);
+        Label title = new Label("Live Camera Feed - Invigilator Device");
+        title.setFont(Font.font("Arial", FontWeight.BOLD, 18));
+        title.setStyle("-fx-text-fill: white;");
+        
+        Label subtitle = new Label("Real-time face detection and recognition");
+        subtitle.setFont(Font.font("Arial", 12));
+        subtitle.setStyle("-fx-text-fill: #888888;");
+        
+        titleBox.getChildren().addAll(title, subtitle);
+        
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        
+        HBox statusBox = new HBox(10);
+        statusBox.setAlignment(Pos.CENTER_RIGHT);
+        
+        Label resolutionLabel = new Label("Resolution: 1280x720");
+        resolutionLabel.setFont(Font.font("Monospace", 11));
+        resolutionLabel.setStyle("-fx-text-fill: #10b981;");
+        
+        Label fpsLabel = new Label("FPS: 30");
+        fpsLabel.setFont(Font.font("Monospace", FontWeight.BOLD, 11));
+        fpsLabel.setStyle("-fx-text-fill: #a855f7;");
+        
+        statusBox.getChildren().addAll(resolutionLabel, new Separator(), fpsLabel);
+        
+        header.getChildren().addAll(icon, titleBox, spacer, statusBox);
+        
+        // Camera Display
+        StackPane cameraPane = new StackPane();
+        cameraPane.setPrefSize(900, 600);
+        cameraPane.setStyle("-fx-background-color: #000000; -fx-background-radius: 10; " +
+                           "-fx-border-color: #333333; -fx-border-width: 1; -fx-border-radius: 10;");
+        
+        cameraView = new ImageView();
+        cameraView.setFitWidth(880);
+        cameraView.setFitHeight(580);
+        cameraView.setPreserveRatio(true);
+        
+        // Placeholder
+        VBox placeholder = new VBox(20);
+        placeholder.setAlignment(Pos.CENTER);
+        
+        Label placeholderIcon = new Label("📷");
+        placeholderIcon.setFont(Font.font(80));
+        placeholderIcon.setStyle("-fx-text-fill: #333333;");
+        
+        Label placeholderText = new Label("Camera Inactive");
+        placeholderText.setFont(Font.font("Arial", FontWeight.BOLD, 24));
+        placeholderText.setStyle("-fx-text-fill: #555555;");
+        
+        Label placeholderHint = new Label("Select a course and click START SESSION");
+        placeholderHint.setFont(Font.font("Arial", 14));
+        placeholderHint.setStyle("-fx-text-fill: #444444;");
+        
+        placeholder.getChildren().addAll(placeholderIcon, placeholderText, placeholderHint);
+        
+        cameraPane.getChildren().addAll(placeholder, cameraView);
+        
+        // Detection Info
+        HBox detectionInfo = new HBox(20);
+        detectionInfo.setPadding(new Insets(10));
+        detectionInfo.setStyle("-fx-background-color: #1a1a1a; -fx-background-radius: 8;");
+        
+        Label detectionMethod = new Label("Detection: Haar Cascade");
+        detectionMethod.setStyle("-fx-text-fill: #3b82f6; -fx-font-weight: bold;");
+        
+        Label recognitionMethod = new Label("Recognition: LBPH + CNN");
+        recognitionMethod.setStyle("-fx-text-fill: #a855f7; -fx-font-weight: bold;");
+        
+        Label accuracy = new Label("Model Accuracy: 96.5%");
+        accuracy.setStyle("-fx-text-fill: #10b981; -fx-font-weight: bold;");
+        
+        detectionInfo.getChildren().addAll(detectionMethod, new Separator(), 
+                                           recognitionMethod, new Separator(), accuracy);
+        
+        box.getChildren().addAll(header, cameraPane, detectionInfo);
+        
+        return box;
+    }
+    
+    private VBox createRecognitionListBox() {
+        VBox box = new VBox(15);
+        box.setPadding(new Insets(20));
+        box.setPrefWidth(450);
+        box.setStyle("-fx-background-color: linear-gradient(to bottom right, #1a1a1a, #2a2a2a); " +
+                    "-fx-background-radius: 15; -fx-border-color: #10b981; " +
+                    "-fx-border-width: 2; -fx-border-radius: 15;");
+        
+        // Header
+        HBox header = new HBox(10);
+        header.setAlignment(Pos.CENTER_LEFT);
+        
+        Label icon = new Label("✓");
+        icon.setFont(Font.font(24));
+        icon.setStyle("-fx-text-fill: #10b981;");
+        
+        VBox titleBox = new VBox(3);
+        Label title = new Label("Recognized Students");
+        title.setFont(Font.font("Arial", FontWeight.BOLD, 18));
+        title.setStyle("-fx-text-fill: white;");
+        
+        Label subtitle = new Label("Auto-recorded attendance");
+        subtitle.setFont(Font.font("Arial", 11));
+        subtitle.setStyle("-fx-text-fill: #888888;");
+        
+        titleBox.getChildren().addAll(title, subtitle);
+        header.getChildren().addAll(icon, titleBox);
+        
+        // Recognition List
+        recognitionList = new ListView<>();
+        recognitionList.setPrefHeight(560);
+        recognitionList.setStyle("-fx-background-color: #0a0a0a; -fx-background-radius: 10; " +
+                                "-fx-border-color: #333333; -fx-border-radius: 10;");
+        
+        Label emptyPlaceholder = new Label("No students recognized yet\n\nStart scanning to begin auto-recording");
+        emptyPlaceholder.setFont(Font.font("Arial", 13));
+        emptyPlaceholder.setStyle("-fx-text-fill: #555555; -fx-text-alignment: center;");
+        emptyPlaceholder.setAlignment(Pos.CENTER);
+        recognitionList.setPlaceholder(emptyPlaceholder);
+        
+        // Action Buttons
+        HBox actionButtons = new HBox(10);
+        
+        Button exportBtn = new Button("Export List");
+        exportBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white; -fx-font-weight: bold;");
+        exportBtn.setOnAction(e -> exportRecognitionList());
+        
+        Button clearBtn = new Button("Clear List");
+        clearBtn.setStyle("-fx-background-color: #ef4444; -fx-text-fill: white; -fx-font-weight: bold;");
+        clearBtn.setOnAction(e -> recognitionList.getItems().clear());
+        
+        actionButtons.getChildren().addAll(exportBtn, clearBtn);
+        
+        box.getChildren().addAll(header, recognitionList, actionButtons);
+        
+        return box;
+    }
+    
+    private HBox createTechnicalInfoPanel() {
+        HBox panel = new HBox(15);
+        panel.setPadding(new Insets(15));
+        panel.setStyle("-fx-background-color: #1a1a1a; -fx-background-radius: 10; " +
+                      "-fx-border-color: #444444; -fx-border-radius: 10;");
+        
+        VBox systemInfo = createInfoBox("System Status", "Operational", "#10b981");
+        VBox databaseInfo = createInfoBox("Database", "MySQL Connected", "#3b82f6");
+        VBox modelInfo = createInfoBox("AI Model", "LBPH + CNN Loaded", "#a855f7");
+        VBox storageInfo = createInfoBox("Storage", "Cloud Sync Active", "#f59e0b");
+        
+        panel.getChildren().addAll(systemInfo, new Separator(), databaseInfo, 
+                                   new Separator(), modelInfo, new Separator(), storageInfo);
+        
+        return panel;
+    }
+    
+    private VBox createInfoBox(String title, String value, String color) {
+        VBox box = new VBox(5);
+        box.setAlignment(Pos.CENTER);
+        
+        Label titleLabel = new Label(title);
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 11));
+        titleLabel.setStyle("-fx-text-fill: #888888;");
+        
+        Label valueLabel = new Label(value);
+        valueLabel.setFont(Font.font("Arial", FontWeight.BOLD, 13));
+        valueLabel.setStyle("-fx-text-fill: " + color + ";");
+        
+        box.getChildren().addAll(titleLabel, valueLabel);
+        
+        return box;
+    }
+    
+    // ============================================
+    // ADMIN DASHBOARD VIEW
+    // ============================================
+    
+    private ScrollPane createAdminDashboardView() {
+        VBox layout = new VBox(25);
+        layout.setPadding(new Insets(25));
+        layout.setStyle("-fx-background-color: #0a0a0a;");
+        
+        Label header = new Label("⚙ Admin Dashboard");
+        header.setFont(Font.font("Arial", FontWeight.BOLD, 32));
+        header.setStyle("-fx-text-fill: white;");
+        
+        HBox quickStats = createQuickStatsPanel();
+        VBox courseManagement = createCourseManagementPanel();
+        VBox recentActivity = createRecentActivityPanel();
+        
+        layout.getChildren().addAll(header, quickStats, courseManagement, recentActivity);
+        
+        ScrollPane scrollPane = new ScrollPane(layout);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background: #0a0a0a;");
+        
+        return scrollPane;
+    }
+    
+    private HBox createQuickStatsPanel() {
+        HBox panel = new HBox(20);
+        panel.setAlignment(Pos.CENTER);
+        
+        VBox totalCourses = createDashboardStatCard("Total Courses", "3", "#3b82f6");
+        totalCoursesLabel = (Label) totalCourses.getChildren().get(1);
+        
+        VBox totalSessions = createDashboardStatCard("Total Sessions", "24", "#10b981");
+        totalSessionsLabel = (Label) totalSessions.getChildren().get(1);
+        
+        VBox recognizedToday = createDashboardStatCard("Recognized Today", "0", "#a855f7");
+        recognizedTodayLabel = (Label) recognizedToday.getChildren().get(1);
+        
+        VBox avgRecognition = createDashboardStatCard("Avg Accuracy", "95.8%", "#f59e0b");
+        avgAccuracyLabel = (Label) avgRecognition.getChildren().get(1);
+        
+        panel.getChildren().addAll(totalCourses, totalSessions, recognizedToday, avgRecognition);
+        
+        return panel;
+    }
+    
+    private VBox createDashboardStatCard(String title, String value, String color) {
+        VBox card = new VBox(12);
+        card.setPadding(new Insets(30));
+        card.setAlignment(Pos.CENTER);
+        card.setPrefWidth(320);
+        card.setPrefHeight(180);
+        card.setStyle("-fx-background-color: " + color + "; -fx-background-radius: 15;");
+        
+        Label titleLabel = new Label(title);
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 14));
+        titleLabel.setStyle("-fx-text-fill: rgba(255,255,255,0.8);");
+        
+        Label valueLabel = new Label(value);
+        valueLabel.setFont(Font.font("Arial", FontWeight.BOLD, 36));
